@@ -140,25 +140,48 @@ def render_email(papers:list[ArxivPaper]):
     content = '<br>' + '</br><br>'.join(parts) + '</br>'
     return framework.replace('__CONTENT__', content)
 
-def send_email(sender:str, receiver:str, password:str,smtp_server:str,smtp_port:int, html:str,):
+def send_email(
+    sender: str,
+    receiver: str,
+    password: str,
+    smtp_server: str,
+    smtp_port: int,
+    html: str,
+):
     def _format_addr(s):
         name, addr = parseaddr(s)
         return formataddr((Header(name, 'utf-8').encode(), addr))
 
     msg = MIMEText(html, 'html', 'utf-8')
-    msg['From'] = _format_addr('Github Action <%s>' % sender)
-    msg['To'] = _format_addr('You <%s>' % receiver)
+    msg['From'] = _format_addr(f'Github Action <{sender}>')
+    msg['To'] = _format_addr(f'You <{receiver}>')
     today = datetime.datetime.now().strftime('%Y/%m/%d')
     msg['Subject'] = Header(f'Daily arXiv {today}', 'utf-8').encode()
 
-    try:
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
-    except Exception as e:
-        logger.warning(f"Failed to use TLS. {e}")
-        logger.warning(f"Try to use SSL.")
-        server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+    logger.info("📨 Preparing to send email...")
+    logger.info(f"🔐 Sender: {sender}")
+    logger.info(f"🔑 Password prefix: {password[:4]} (should match App Password)")
+    logger.info(f"📮 SMTP: {smtp_server}:{smtp_port}")
 
-    server.login(sender, password)
-    server.sendmail(sender, [receiver], msg.as_string())
-    server.quit()
+    try:
+        try:
+            server = smtplib.SMTP(smtp_server, smtp_port, timeout=10)
+            server.starttls()
+            logger.info("✅ TLS connection established.")
+        except Exception as e:
+            logger.warning(f"⚠️ TLS failed: {e}")
+            logger.warning(f"⛓️ Trying SSL instead...")
+            server = smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=10)
+
+        server.login(sender, password)
+        server.sendmail(sender, [receiver], msg.as_string())
+        logger.info("✅ Email sent successfully.")
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error(f"❌ SMTP authentication failed: {e}")
+    except Exception as e:
+        logger.error(f"❌ Failed to send email: {e}")
+    finally:
+        try:
+            server.quit()
+        except Exception:
+            pass
